@@ -101,6 +101,8 @@ the command line:
 | `--api-key` | `MCP_API_KEY` | Required Bearer token for incoming MCP calls. http only. |
 | `--auth` | `MCP_AUTH_MODE` | `dev` (default) or `oidc`. |
 | `--external-id` | `MCP_EXTERNAL_ID` | Dev-mode identity sent to `/auth/sync`. |
+| `--email` | `MCP_EMAIL` | Dev-mode email sent to `/auth/sync`. Default `<external-id>@wardrowbe.local`. Set it to the real address when `--external-id` names an existing user: the backend overwrites the stored email on every sync. |
+| `--display-name` | `MCP_DISPLAY_NAME` | Dev-mode display name sent to `/auth/sync`. Default: the external-id. |
 | `--oidc-issuer-url` | `MCP_OIDC_ISSUER_URL` | OIDC discovery base. |
 | `--oidc-client-id` | `MCP_OIDC_CLIENT_ID` | |
 | `--oidc-client-secret` | `MCP_OIDC_CLIENT_SECRET` | Optional for public clients. |

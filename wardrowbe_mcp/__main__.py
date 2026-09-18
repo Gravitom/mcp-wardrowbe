@@ -12,9 +12,10 @@ Transports:
 
 Auth modes (apply to both transports — both still talk to the wardrowbe
 backend over HTTP):
-* ``--auth dev`` — dev_login sync with ``--external-id`` (default: wardrowbe-mcp).
-  Requires the wardrowbe backend to be in dev mode (DEBUG=true + default
-  SECRET_KEY).
+* ``--auth dev`` — dev_login sync with ``--external-id`` (default: wardrowbe-mcp),
+  optionally ``--email`` / ``--display-name`` so an existing user's stored
+  email is not overwritten on every sync. Requires the wardrowbe backend to
+  be in dev mode (DEBUG=true + default SECRET_KEY).
 * ``--auth oidc`` — refresh-token flow against the configured OIDC issuer.
   Requires --oidc-issuer-url, --oidc-client-id, --oidc-refresh-token.
 """
@@ -88,6 +89,18 @@ def _build_argparser() -> argparse.ArgumentParser:
         default=os.environ.get("MCP_EXTERNAL_ID", "wardrowbe-mcp"),
         help="Dev-mode external_id sent to /auth/sync",
     )
+    p.add_argument(
+        "--email",
+        default=os.environ.get("MCP_EMAIL"),
+        help="Dev-mode email sent to /auth/sync. Default: <external-id>@wardrowbe.local. "
+        "Set it to the user's real email when --external-id points at an existing "
+        "user, otherwise every sync overwrites that user's stored email.",
+    )
+    p.add_argument(
+        "--display-name",
+        default=os.environ.get("MCP_DISPLAY_NAME"),
+        help="Dev-mode display name sent to /auth/sync. Default: the external-id.",
+    )
     p.add_argument("--oidc-issuer-url", default=os.environ.get("MCP_OIDC_ISSUER_URL"))
     p.add_argument("--oidc-client-id", default=os.environ.get("MCP_OIDC_CLIENT_ID"))
     p.add_argument(
@@ -108,7 +121,11 @@ def _build_token_provider(
     args: argparse.Namespace, session: aiohttp.ClientSession
 ) -> TokenProvider:
     if args.auth == "dev":
-        return DevTokenProvider(args.external_id)
+        return DevTokenProvider(
+            args.external_id,
+            email=args.email,
+            display_name=args.display_name,
+        )
     if args.auth == "oidc":
         missing = [
             n for n in ("oidc_issuer_url", "oidc_client_id", "oidc_refresh_token")

@@ -1,5 +1,23 @@
 # Changelog
 
+## [0.3.1] — 2026-09-18
+
+### Features
+
+- `--email` / `MCP_EMAIL` and `--display-name` / `MCP_DISPLAY_NAME` for
+  `--auth dev`. Previously the server always sent the synthesised
+  `<external_id>@wardrowbe.local` and reused the external_id as the display
+  name; because the backend's `/auth/sync` overwrites both stored fields on
+  every sync, pointing the server at an existing web-login user replaced
+  that user's real email each session. With neither flag set the payload is
+  byte-for-byte what 0.3.0 sent. Ignored in OIDC mode, where the claims
+  supply both values.
+
+### Development
+
+- `pip install -e ".[dev]"` (or `uv sync --extra dev`) installs pytest;
+  `tests/test_cli.py` covers the dev-mode identity flags.
+
 ## [0.3.0] — 2026-05-27
 
 ### Features

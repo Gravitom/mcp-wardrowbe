@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "wardrowbe-mcp"
-version = "0.3.0"
+version = "0.3.1"
 description = "MCP server exposing the Wardrowbe wardrobe API (Anyesh/wardrowbe) as tools over SSE and Streamable HTTP."
 readme = "README.md"
 requires-python = ">=3.11"
@@ -41,6 +41,11 @@ Repository = "https://github.com/saya6k/mcp-wardrowbe"
 Issues = "https://github.com/saya6k/mcp-wardrowbe/issues"
 "Wardrowbe upstream" = "https://github.com/Anyesh/wardrowbe"
 
+[project.optional-dependencies]
+dev = [
+  "pytest>=8",
+]
+
 [project.scripts]
 wardrowbe-mcp = "wardrowbe_mcp.__main__:main"
 
@@ -53,3 +58,6 @@ include = ["wardrowbe_mcp*"]
 # the skill without a separate config entry.
 [tool.setuptools.package-data]
 wardrowbe_mcp = ["skill/SKILL.md", "skill/README.md", "skill/**/*.md"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

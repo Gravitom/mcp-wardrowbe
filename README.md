@@ -5,10 +5,12 @@ wardrobe API as tools an LLM can call. Works against any Wardrowbe instance —
 self-hosted (e.g., behind a reverse proxy or the `ha-wardrowbe` Home Assistant
 add-on) or a hosted/cloud deployment.
 
-22 tools covering outfit suggestions, item browsing, wear/wash logging,
-acceptance flow, analytics, and notifications. Tool surface mirrors
-`hacs-wardrowbe`'s LLM API one-for-one, plus three read-only helpers
-(`list_items`, `get_item`, `get_outfit`).
+23 tools covering outfit suggestions, item browsing, adding items,
+wear/wash logging, acceptance flow, analytics, and notifications. Tool
+surface mirrors `hacs-wardrowbe`'s LLM API one-for-one, plus three read-only
+helpers (`list_items`, `get_item`, `get_outfit`) and `add_item`, which
+creates an item from a product page URL, an image URL or (stdio transport
+only) a file path on the machine running this server.
 
 ## Install
 
@@ -85,6 +87,32 @@ the server reaches the wardrowbe backend.
 After **Apply & Restart**, the proxy exposes the server at
 `http://homeassistant.local:8080/servers/wardrowbe/sse` — add that URL to
 Home Assistant via **Settings → Devices & Services → MCP Server**.
+
+### How `add_item` fetches images
+
+`add_item` downloads the picture itself, under these rules:
+
+- Shop requests go through [`curl_cffi`](https://github.com/lexiforest/curl_cffi)
+  impersonating Chrome's TLS fingerprint. Cloudflare-fronted shops answer
+  plain Python HTTP clients with 403 whatever headers they send, so this is
+  what makes a product link from such a shop resolve at all. `curl_cffi`
+  installs from binary wheels on Windows, macOS and Linux (glibc and musl);
+  the Wardrowbe backend itself is still reached with aiohttp.
+- A product page's image is taken from `og:image`, then `twitter:image`,
+  then a JSON-LD `Product`'s `image` (a string, a list, an `ImageObject`, or
+  an `@id` pointing at one). Only http/https links, at most 10 MB, JPEG,
+  PNG, WebP or HEIC, 20 s per request and 60 s in all. A product link that
+  redirects to a different page (a category, the home page) is refused; one
+  that only adds or drops a locale prefix such as `/uk/` is followed.
+- Every host is resolved before it is fetched, and anything that resolves to
+  a private, loopback, link-local or otherwise non-public address is
+  refused (including IPv6 forms that carry such an IPv4 address), on every redirect hop (at most 5, http/https only). A product
+  link, or a redirect from one, can't reach the network this server runs
+  on. The check does not pin the resolved address into curl, so a DNS
+  record that changes between the check and the connection (DNS rebinding)
+  is not caught; see the CHANGELOG.
+- Local file paths are accepted only with `--transport stdio`, where the
+  caller and the server share a machine. Over HTTP the tool asks for a link.
 
 ### Configuration reference
 

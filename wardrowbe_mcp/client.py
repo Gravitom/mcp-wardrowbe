@@ -8,12 +8,17 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from collections.abc import Callable
 from datetime import datetime, timedelta, timezone
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import aiohttp
 
 from .auth import TokenProvider, WardrowbeAuthError
+
+if TYPE_CHECKING:
+    # Annotation only: keeps curl_cffi out of the client's import graph.
+    from .image_source import ResolvedImage
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -24,7 +29,18 @@ _DEFAULT_JWT_TTL_SECONDS = 6 * 24 * 3600
 
 
 class WardrowbeApiError(Exception):
-    """Generic Wardrowbe API error."""
+    """Generic Wardrowbe API error.
+
+    ``status`` and ``body`` are set when the backend answered with an HTTP
+    error status; both stay ``None`` for transport errors.
+    """
+
+    def __init__(
+        self, message: str, *, status: int | None = None, body: str | None = None
+    ) -> None:
+        super().__init__(message)
+        self.status = status
+        self.body = body
 
 
 class WardrowbeClient:
@@ -196,6 +212,38 @@ class WardrowbeClient:
     async def async_restore_item(self, item_id: str) -> dict[str, Any]:
         return await self._request("POST", f"{_API_BASE}/items/{item_id}/restore")
 
+    async def async_create_item(
+        self,
+        image: ResolvedImage,
+        *,
+        name: str | None = None,
+        brand: str | None = None,
+        notes: str | None = None,
+        favorite: bool = False,
+    ) -> dict[str, Any]:
+        """Upload ``image`` as a new item (multipart ``POST /items``)."""
+
+        def build_form() -> aiohttp.FormData:
+            form = aiohttp.FormData()
+            form.add_field(
+                "image",
+                image.data,
+                filename=image.filename,
+                content_type=image.content_type,
+            )
+            for key, value in (("name", name), ("brand", brand), ("notes", notes)):
+                if value is not None:
+                    form.add_field(key, value)
+            form.add_field("favorite", "true" if favorite else "false")
+            return form
+
+        result = await self._request(
+            "POST", f"{_API_BASE}/items", data_factory=build_form
+        )
+        if isinstance(result, dict):
+            _resolve_image_urls(result, self._host)
+        return result
+
     async def async_test_notification(self, setting_id: str) -> dict[str, Any]:
         return await self._request(
             "POST", f"{_API_BASE}/notifications/settings/{setting_id}/test"
@@ -247,7 +295,13 @@ class WardrowbeClient:
         *,
         json: Any | None = None,
         params: dict[str, Any] | None = None,
+        data_factory: Callable[[], aiohttp.FormData] | None = None,
     ) -> Any:
+        """Authenticated request with one re-sync retry on 401.
+
+        ``data_factory`` builds a fresh multipart body per attempt, because
+        an ``aiohttp.FormData`` can only be sent once.
+        """
         last_status: int | None = None
         last_body: str | None = None
         for attempt in (0, 1):
@@ -258,6 +312,7 @@ class WardrowbeClient:
                     self._url(path),
                     json=json,
                     params=params,
+                    data=data_factory() if data_factory is not None else None,
                     headers={"Authorization": f"Bearer {jwt_token}"},
                     ssl=self._verify_ssl,
                     timeout=aiohttp.ClientTimeout(total=_DEFAULT_TIMEOUT),
@@ -277,7 +332,11 @@ class WardrowbeClient:
             raise WardrowbeAuthError(
                 f"{method} {path} → 401 after re-sync: {last_body}"
             )
-        raise WardrowbeApiError(f"{method} {path} → {last_status}: {last_body}")
+        raise WardrowbeApiError(
+            f"{method} {path} → {last_status}: {last_body}",
+            status=last_status,
+            body=last_body,
+        )
 
 
 # ─── helpers ────────────────────────────────────────────────────────────

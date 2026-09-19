@@ -193,7 +193,7 @@ async def _serve_stdio(args: argparse.Namespace) -> None:
     async with aiohttp.ClientSession() as session:
         token_provider = _build_token_provider(args, session)
         client = WardrowbeClient(session, args.wardrowbe_url, token_provider)
-        mcp = build_mcp_server(client)
+        mcp = build_mcp_server(client, allow_local_files=True)
         await mcp.run_stdio_async()
 
 
@@ -218,7 +218,7 @@ async def _serve_http(args: argparse.Namespace) -> None:
     async with aiohttp.ClientSession() as session:
         token_provider = _build_token_provider(args, session)
         client = WardrowbeClient(session, args.wardrowbe_url, token_provider)
-        mcp = build_mcp_server(client)
+        mcp = build_mcp_server(client, allow_local_files=False)
 
         sse_app = mcp.sse_app()
         http_app = mcp.streamable_http_app()

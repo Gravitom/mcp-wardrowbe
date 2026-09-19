@@ -3,11 +3,13 @@
 Tools mirror the upstream HA integration's LLM API surface 1:1 where they
 apply, plus a handful of read-only helpers (``list_items``, ``get_item``,
 ``get_outfit``) that the HA-side tools couldn't fit into the satellite-card
-envelope.
+envelope, and ``add_item``, which writes: it creates a wardrobe item from a
+product page, an image URL or a file on the machine running this server.
 """
 
 from __future__ import annotations
 
+import json
 import logging
 from pathlib import Path
 from typing import Any
@@ -16,6 +18,7 @@ from mcp.server.fastmcp import FastMCP
 from mcp.server.transport_security import TransportSecuritySettings
 
 from .client import WardrowbeApiError, WardrowbeClient
+from .image_source import ImageSourceError, resolve_image
 
 # agentskills.io-format skill bundle shipped inside the package (via the
 # `wardrowbe_mcp/skill` symlink pointing at the repo's canonical
@@ -50,12 +53,19 @@ _OUTFIT_STATUSES = ("pending", "sent", "accepted", "rejected", "skipped")
 _ACTIONABLE_STATUSES = {"pending", "sent"}
 
 
-def build_mcp_server(client: WardrowbeClient, name: str = "wardrowbe") -> FastMCP:
+def build_mcp_server(
+    client: WardrowbeClient,
+    name: str = "wardrowbe",
+    *,
+    allow_local_files: bool = False,
+) -> FastMCP:
     """Build a FastMCP server bound to ``client``.
 
     The returned server has all Wardrowbe tools registered. Caller is
     responsible for choosing the transport (SSE / Streamable HTTP / stdio)
-    and running it.
+    and running it. ``allow_local_files`` lets ``add_item`` read files on
+    this machine; only the stdio transport turns it on, because there the
+    caller and the server share a machine.
     """
     mcp = FastMCP(
         name,
@@ -174,6 +184,56 @@ def build_mcp_server(client: WardrowbeClient, name: str = "wardrowbe") -> FastMC
     async def restore_item(item_id: str) -> dict[str, Any]:
         """Restore a previously-archived item."""
         return await _wrap(client.async_restore_item(item_id))
+
+    @mcp.tool()
+    async def add_item(
+        source: str,
+        name: str | None = None,
+        brand: str | None = None,
+        notes: str | None = None,
+        favorite: bool = False,
+    ) -> dict[str, Any]:
+        """Add a clothing item to the wardrobe from a picture of it.
+
+        ``source`` is a product page URL (its og:image, twitter:image or
+        JSON-LD product image is used), a direct image URL, or, when this
+        server runs on the user's own machine over stdio, a file path there
+        (JPEG, PNG, WebP or HEIC, up to 10 MB). Links to private or local
+        network addresses are refused. Images pasted into the chat can't be
+        used; ask for a link or file path. Take ``name`` and ``brand`` from
+        the conversation, or from the ``page_title`` this tool returns. The
+        backend then runs AI tagging, so the new item's status is usually
+        ``processing``.
+        """
+        try:
+            image = await resolve_image(source, allow_local_files=allow_local_files)
+        except ImageSourceError as err:
+            raise RuntimeError(str(err)) from err
+        try:
+            item = await client.async_create_item(
+                image, name=name, brand=brand, notes=notes, favorite=favorite
+            )
+        except WardrowbeApiError as err:
+            if err.status == 409:
+                raise RuntimeError(
+                    f"Already in your wardrobe. {_error_detail(err)}"
+                ) from err
+            if err.status == 400:
+                raise RuntimeError(_error_detail(err)) from err
+            if err.status == 413:
+                size = len(image.data) / (1024 * 1024)
+                raise RuntimeError(
+                    "Wardrowbe, or a proxy in front of it, refused the upload as "
+                    f"too large ({size:.1f} MB). Raise the proxy's body-size limit."
+                ) from err
+            raise RuntimeError(_truncated_error(err)) from err
+        return {
+            "item_id": item.get("id"),
+            "status": item.get("status"),
+            "image_url": image.image_url,
+            "page_title": image.page_title,
+            "message": "Added to your wardrobe; AI tagging is in progress.",
+        }
 
     # ─── outfits ─────────────────────────────────────────────────────────
 
@@ -339,6 +399,31 @@ def _register_skill_resources(mcp: FastMCP) -> None:
         "Registered %d skill resource(s) under skill://%s/ (manifest + siblings)",
         count, _SKILL_SLUG,
     )
+
+
+def _error_detail(err: WardrowbeApiError) -> str:
+    """The backend's ``detail`` string from an error body, else the raw body."""
+    try:
+        detail = json.loads(err.body or "").get("detail")
+    except (ValueError, AttributeError):
+        detail = None
+    return detail if isinstance(detail, str) else (err.body or str(err))
+
+
+_MAX_ERROR_BODY_CHARS = 300
+
+
+def _truncated_error(err: WardrowbeApiError) -> str:
+    """``str(err)`` with the raw response body cut to 300 characters.
+
+    The client's message ends with the body; a proxy's HTML error page can
+    run to kilobytes, which is no use in a chat.
+    """
+    message = str(err)
+    body = err.body or ""
+    if len(body) > _MAX_ERROR_BODY_CHARS and message.endswith(body):
+        message = message[: -len(body)] + body[:_MAX_ERROR_BODY_CHARS] + "…"
+    return message
 
 
 async def _wrap(coro):

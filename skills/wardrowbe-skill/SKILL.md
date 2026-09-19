@@ -30,11 +30,14 @@ add-on. Tools are not local; every call hits the user's wardrowbe backend.
 - *"Log that I wore [item] today"* → `log_wear`
 - *"How many items do I have?"* → `get_wardrobe_summary`
 - *"Show me my black t-shirts"* → `list_items` with `search` / `category`
+- *"Add this jacket to my wardrobe: [link]"* → `add_item` (product page URL
+  or image URL; a local file path works only when the server runs over
+  stdio on the user's own machine; AI tagging runs server-side)
 
 ## What this skill is NOT for
 
-- Uploading new clothes (use the wardrowbe web UI; image upload is a
-  separate route the MCP doesn't expose).
+- Bulk uploads or photos that aren't reachable by URL or local path (use
+  the wardrowbe web UI; `add_item` takes one source at a time).
 - Editing item metadata (no PATCH endpoint exposed yet).
 - HA automation triggers — use the HA `wardrowbe` integration (`hacs-wardrowbe`)
   for that.
